@@ -21,8 +21,10 @@ proc-macro = true
 anyhow = "1.*"
 capnpc = "0.14"
 capnp = "0.14"
-quote = "1.0.23"
-syn = "1.0.109"
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full"] }
+tempfile = "3.5"
 wax = "0.5.0"
 walkdir = "2"
 
