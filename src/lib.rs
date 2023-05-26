@@ -37,15 +37,22 @@ pub fn capnp_import(input: TokenStream) -> TokenStream {
         .collect();
     let tempdir = tempdir().unwrap();
     let helperfile_contents = process_inner(&x, &tempdir).unwrap();
-    let mut result = String::new();
+    let mut result = TokenStream2::new();
     for entry in WalkDir::new(tempdir.path()) {
         let e = entry.unwrap().into_path();
         if e.is_file() {
             println!("File created: {:?}", e);
-            result += &fs::read_to_string(e).unwrap();
+            let contents = TokenStream2::from_str(&fs::read_to_string(&e).unwrap()).unwrap();
+            let module_name = format_ident!("{}", e.file_stem().unwrap().to_str().unwrap());
+            let w = quote! {
+                mod #module_name {
+                    #contents
+                }
+            };
+            result.extend(w);
         }
     }
-    TokenStream::from_str(result.as_str()).unwrap()
+    result.into()
     //TokenStream::from(result.as_str())
     //quote! {#result}.into()
 }
@@ -78,6 +85,7 @@ fn process_inner<T: AsRef<str>>(
         let entry = entry_result?;
         let path = normalize_path(entry.path()); // Remove the current directory indicator
 
+        println!("Processing path: {:?}", path.to_str());
         if path.is_file() && combined_globs.is_match(path.as_path()) {
             println!("Processing {:?}", path);
             cmd.file(path);

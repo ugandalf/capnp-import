@@ -1,12 +1,11 @@
 use capnp_import::capnp_import;
 
-mod example_capnp {
-    capnp_import::capnp_import!(["tests/example.capnp"]);
-    capnp_import::capnp_import!(["tests/folder-test"]);
-}
+capnp_import!(["tests/example.capnp", "tests/folder-test/*.capnp"]);
+//capnp_import!(["tests/folder-test/*"]);
 
 #[test]
 fn basic_file_test() {
+    use example_capnp::date;
     use example_capnp::person;
 }
 
