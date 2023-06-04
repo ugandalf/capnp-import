@@ -10,7 +10,8 @@ use std::{
     io::Read,
     path::{Component, Path, PathBuf},
 };
-use syn::{parse_macro_input, ExprArray};
+use syn::parse::Parser;
+use syn::{parse_macro_input, Expr, ExprArray, LitStr, Token};
 use tempfile::NamedTempFile;
 use tempfile::{tempdir, TempDir};
 use walkdir::WalkDir;
@@ -20,53 +21,42 @@ include!(concat!(env!("OUT_DIR"), "/binary_decision.rs"));
 
 #[proc_macro]
 pub fn capnp_import(input: TokenStream) -> TokenStream {
-    // paths is a vector of paths, e.g.: vec!["./cap1.capnp", "./cap2.capnp"]
-    // let paths_vec: Vec<&str> = todo!();
-    // let _result = process(&paths_vec);
-    //"fn answer() -> u32 { 42 }".parse().unwrap()
-    let paths = parse_macro_input!(input as ExprArray);
-    let x: Vec<String> = paths
-        .elems
-        .iter()
-        .map(|path| {
-            path.into_token_stream()
-                .to_string()
-                .trim_matches('\"')
-                .to_string()
-        })
-        .collect();
-    let tempdir = tempdir().unwrap();
-    let helperfile_contents = process_inner(&x, &tempdir).unwrap();
-    let mut result = TokenStream2::new();
-    for entry in WalkDir::new(tempdir.path()) {
-        let e = entry.unwrap().into_path();
-        if e.is_file() {
-            println!("File created: {:?}", e);
-            let contents = TokenStream2::from_str(&fs::read_to_string(&e).unwrap()).unwrap();
-            let module_name = format_ident!("{}", e.file_stem().unwrap().to_str().unwrap());
-            let w = quote! {
-                mod #module_name {
-                    #contents
-                }
-            };
-            result.extend(w);
-        }
-    }
+    // let paths = parse_macro_input!(input as ExprArray);
+    // let x: Vec<String> = paths
+    //     .elems
+    //     .iter()
+    //     .map(|path| {
+    //         path.into_token_stream()
+    //             .to_string()
+    //             .trim_matches('\"')
+    //             .to_string()
+    //     })
+    //     .collect();
+
+    // considered alternative
+    //let paths = parse_macro_input!(input as syn::Expr);
+    //let x: syn::punctuated::IntoIter<syn::Expr> = match paths {
+    //    syn::Expr::Array(ExprArray { elems, .. }) => elems.into_iter(),
+    //    _ => panic!("Couldn't parse capnp_import contents for {}", input),
+    //};
+
+    // Another alternative
+    let parser = syn::punctuated::Punctuated::<LitStr, Token![,]>::parse_separated_nonempty;
+    let paths = parser.parse(input).unwrap();
+    let x: Vec<String> = paths.into_iter().map(|item| item.value()).collect();
+    let result = process_inner(&x).unwrap();
     result.into()
-    //TokenStream::from(result.as_str())
-    //quote! {#result}.into()
 }
 
-fn process_inner<T: AsRef<str>>(
-    path_patterns: &[T],
-    output_dir: &TempDir,
-) -> anyhow::Result<TokenStream2> {
+fn process_inner<T: AsRef<str>>(path_patterns: &[T]) -> anyhow::Result<TokenStream2> {
+    // TODO Make it IntoIter
     let cmdpath = CAPNP_BIN_PATH;
     let mut helperfile = TokenStream2::new();
+    let output_dir = tempdir()?;
 
     let mut cmd = capnpc::CompilerCommand::new();
     cmd.capnp_executable(cmdpath);
-    cmd.output_path(output_dir);
+    cmd.output_path(&output_dir);
     // any() wants to borrow the list of strings we give it, but we can't pass in path_patterns
     // because the borrw checker doesn't like it. We also can't pass in Vec<String> because
     // TryInto<Pattern isn't implemented for String. So, we turn the strings into owned Globs
@@ -95,6 +85,21 @@ fn process_inner<T: AsRef<str>>(
 
     if let Err(e) = cmd.run() {
         bail!(e.to_string());
+    }
+
+    for entry in WalkDir::new(output_dir.path()) {
+        let e = entry.unwrap().into_path();
+        if e.is_file() {
+            println!("File created: {:?}", e);
+            let contents = TokenStream2::from_str(&fs::read_to_string(&e).unwrap()).unwrap();
+            let module_name = format_ident!("{}", e.file_stem().unwrap().to_str().unwrap());
+            let w = quote! {
+                mod #module_name {
+                    #contents
+                }
+            };
+            helperfile.extend(w);
+        }
     }
 
     return Ok(helperfile);
